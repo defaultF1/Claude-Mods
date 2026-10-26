@@ -4,7 +4,7 @@ Mods for [Claude Code](https://claude.com/claude-code). This repository is a plu
 
 | Mod | What it does |
 | --- | --- |
-| [prompt-refiner](prompt-refiner/) | Before Claude acts on a new request, it categorises it, asks 1-4 follow-up questions, then works from a refined prompt that keeps every detail you gave. `/refine on \| off \| quick \| deep`, end a prompt with `--go` to skip once. |
+| [prompt-refiner](prompt-refiner/) | Before Claude acts on a complex or unclear request, it categorises it, asks 1-4 follow-up questions, then works from a refined prompt that keeps every detail you gave. Clickable On/Off and Quick/Deep row above the prompt; `/refine` works too; end a prompt with `--go` to skip once. |
 
 ## Install
 

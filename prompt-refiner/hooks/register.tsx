@@ -1,7 +1,7 @@
+import { atom, read, update } from 'claude-code'
 import type { PromptOrigin, Register } from 'claude-code'
 
-type Mode = 'on' | 'off'
-type Depth = 'quick' | 'deep'
+import type { Depth, Settings } from '../types'
 
 const SKIP = /\s*--go\s*$/i
 const TYPED: readonly PromptOrigin['kind'][] = ['composer', 'bridge', 'sdk']
@@ -28,7 +28,10 @@ function protocol(depth: Depth): string {
   return `[prompt-refiner mod: active for this message]
 The person turned on prompt refinement. Before doing the work, refine the request with them:
 
-1. Decide whether to refine. Skip straight to the work, with no mention of this mod, when the message answers your own question, approves or corrects what you just did, continues work already well defined in this conversation, is conversational, or is already fully specified. If unsure, refine.
+1. Decide whether to refine by the message's complexity and how confusing it is, not by whether it is new or a follow-up.
+   - Refine when it is complex (several parts, a sizeable deliverable, choices that would change the output a lot) or confusing (unclear goal, target or scope; vague words like "make it better"; two or more reasonable readings; a conflict with something said earlier). A follow-up that is complex or confusing gets refined too.
+   - Skip straight to the work, with no mention of this mod, when it is simple and clear: a direct question, a small precise change, an answer to your own question, an approval, or chat.
+   - If unsure, refine.
 
 2. Build a context ledger, privately: every fact, constraint, name, number, file, path, link, preference and example the person gave, in this message and earlier in the conversation, plus what memory and the project already settle. Keep their exact words. Nothing in it may be dropped, merged away or softened later.
 
@@ -53,8 +56,6 @@ The person turned on prompt refinement. Before doing the work, refine the reques
 Never let refinement lose anything: the original message stays the source of truth, and the refined prompt only adds to it.`
 }
 
-type Settings = { mode: Mode; depth: Depth }
-
 function settingsOf(mode: unknown, depth: unknown): Settings {
   return {
     mode: mode === 'off' ? 'off' : 'on',
@@ -62,39 +63,45 @@ function settingsOf(mode: unknown, depth: unknown): Settings {
   }
 }
 
-function label(settings: Settings): string | undefined {
-  return settings.mode === 'on' ? `Refine: on (${settings.depth})` : undefined
-}
+const settingsAtom = atom(
+  { plugin: 'prompt-refiner', key: 'settings' } as const,
+  { mode: 'on', depth: 'quick' },
+)
+const lastAtom = atom({ plugin: 'prompt-refiner', key: 'last' } as const, null)
 
 export const register: Register = on => {
+  // Whether the running turn carries the protocol, and how many questions it asked.
+  let isRefining = false
+  let asked = 0
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'refine',
       description: 'Prompt refiner: on | off | quick | deep | status',
     })
-    const settings = settingsOf(await $.store.get('mode'), await $.store.get('depth'))
-    $.ui.status(label(settings))
+    const stored = settingsOf(await $.store.get('mode'), await $.store.get('depth'))
+    await update($, settingsAtom, () => stored)
+    $.ui.status(undefined)
 
     return next(e)
   })
 
   on('command.run', { command: 'refine' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
-    const settings = settingsOf(await $.store.get('mode'), await $.store.get('depth'))
+    const settings = { ...(await read($, settingsAtom)) }
 
     if (arg === 'on' || arg === 'off') {
-      await $.store.set('mode', arg)
       settings.mode = arg
     } else if (arg === 'quick' || arg === 'deep') {
-      await $.store.set('depth', arg)
-      await $.store.set('mode', 'on')
       settings.depth = arg
       settings.mode = 'on'
     } else if (arg !== '' && arg !== 'status') {
       return { text: 'Usage: /refine on | off | quick | deep | status' }
     }
 
-    $.ui.status(label(settings))
+    await $.store.set('mode', settings.mode)
+    await $.store.set('depth', settings.depth)
+    await update($, settingsAtom, () => settings)
 
     return {
       text:
@@ -109,16 +116,96 @@ export const register: Register = on => {
       return next(e)
     }
 
+    isRefining = false
+    asked = 0
+
     if (SKIP.test(e.text)) {
+      await update($, lastAtom, () => 'skipped with --go')
+
       return next({ ...e, text: e.text.replace(SKIP, '') })
     }
 
-    const settings = settingsOf(await $.store.get('mode'), await $.store.get('depth'))
+    const settings = await read($, settingsAtom)
 
     if (settings.mode === 'off') {
       return next(e)
     }
 
+    isRefining = true
+
     return next({ ...e, context: [...(e.context ?? []), protocol(settings.depth)] })
+  })
+
+  on('tool.call', { tool: 'AskUserQuestion' }, ($, e, next) => {
+    if (isRefining) {
+      asked += e.questions.length
+    }
+
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (isRefining) {
+      const note =
+        asked > 0
+          ? `asked ${asked} question${asked === 1 ? '' : 's'}`
+          : 'no questions needed (clear prompt)'
+      await update($, lastAtom, () => note)
+      isRefining = false
+    }
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) {
+      return next(e)
+    }
+
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const settings = await read($, settingsAtom)
+    const last = await read($, lastAtom)
+    const isOn = settings.mode === 'on'
+
+    const apply = async (change: Partial<Settings>) => {
+      const nextSettings = { ...settings, ...change }
+      await $.store.set('mode', nextSettings.mode)
+      await $.store.set('depth', nextSettings.depth)
+      await update($, settingsAtom, () => nextSettings)
+    }
+
+    return (
+      <Box flexDirection="row" gap={1}>
+        <Text bold>Refiner</Text>
+        <Button
+          key="on"
+          label="On"
+          variant={isOn ? 'primary' : 'secondary'}
+          onPress={() => apply({ mode: 'on' })}
+        />
+        <Button
+          key="off"
+          label="Off"
+          variant={isOn ? 'secondary' : 'primary'}
+          onPress={() => apply({ mode: 'off' })}
+        />
+        <Text dimColor>|</Text>
+        <Button
+          key="quick"
+          label="Quick"
+          dimColor={!isOn}
+          variant={isOn && settings.depth === 'quick' ? 'primary' : 'secondary'}
+          onPress={() => apply({ mode: 'on', depth: 'quick' as Depth })}
+        />
+        <Button
+          key="deep"
+          label="Deep"
+          dimColor={!isOn}
+          variant={isOn && settings.depth === 'deep' ? 'primary' : 'secondary'}
+          onPress={() => apply({ mode: 'on', depth: 'deep' as Depth })}
+        />
+        {last !== null && <Text dimColor>Last: {last}</Text>}
+      </Box>
+    )
   })
 }

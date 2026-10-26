@@ -6,7 +6,7 @@
     {
       "name": "prompt-refiner",
       "source": "./prompt-refiner",
-      "description": "Before acting on a new request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave"
+      "description": "Before acting on a complex or unclear request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave"
     }
   ]
 }

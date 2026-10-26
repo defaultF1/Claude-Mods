@@ -1,1 +1,1 @@
-{ "name": "prompt-refiner", "version": "0.1.0", "description": "Before acting on a new request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave" }
+{ "name": "prompt-refiner", "version": "0.2.0", "description": "Before acting on a complex or unclear request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave", "types": "./types/index.d.ts" }
