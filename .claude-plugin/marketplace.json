@@ -1,0 +1,12 @@
+{
+  "name": "claude-mods",
+  "description": "Mods for Claude Code by defaultF1",
+  "owner": { "name": "defaultF1" },
+  "plugins": [
+    {
+      "name": "prompt-refiner",
+      "source": "./prompt-refiner",
+      "description": "Before acting on a new request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave"
+    }
+  ]
+}

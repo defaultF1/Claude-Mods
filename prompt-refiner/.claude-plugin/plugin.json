@@ -1,0 +1,1 @@
+{ "name": "prompt-refiner", "version": "0.1.0", "description": "Before acting on a new request, Claude asks categorised follow-up questions, then works from a refined prompt that keeps every detail you gave" }
